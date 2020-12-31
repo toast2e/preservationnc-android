@@ -3,13 +3,30 @@ package com.preservationnc;
 import androidx.fragment.app.FragmentActivity;
 
 import android.os.Bundle;
+import android.util.Log;
 
+import com.android.volley.Request;
+import com.android.volley.RequestQueue;
+import com.android.volley.Response;
+import com.android.volley.VolleyError;
+import com.android.volley.toolbox.JsonArrayRequest;
+import com.android.volley.toolbox.JsonObjectRequest;
+import com.android.volley.toolbox.StringRequest;
+import com.android.volley.toolbox.Volley;
 import com.google.android.gms.maps.CameraUpdateFactory;
 import com.google.android.gms.maps.GoogleMap;
 import com.google.android.gms.maps.OnMapReadyCallback;
 import com.google.android.gms.maps.SupportMapFragment;
 import com.google.android.gms.maps.model.LatLng;
 import com.google.android.gms.maps.model.MarkerOptions;
+
+import org.json.JSONArray;
+import org.json.JSONException;
+import org.json.JSONObject;
+
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 
 public class MapsActivity extends FragmentActivity implements OnMapReadyCallback {
 
@@ -36,11 +53,132 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
      */
     @Override
     public void onMapReady(GoogleMap googleMap) {
+        setupRequestQueue();
+
         mMap = googleMap;
 
-        // Add a marker in Sydney and move the camera
-        LatLng sydney = new LatLng(-34, 151);
-        mMap.addMarker(new MarkerOptions().position(sydney).title("Marker in Sydney"));
-        mMap.moveCamera(CameraUpdateFactory.newLatLng(sydney));
+        // Add a marker in raleigh and move the camera
+        LatLng raleigh = new LatLng(35.843685, -78.78514);
+        mMap.addMarker(new MarkerOptions().position(raleigh).title("Raleigh, NC"));
+        mMap.moveCamera(CameraUpdateFactory.newLatLng(raleigh));
+    }
+
+    private void setupRequestQueue() {
+        // Instantiate the RequestQueue.
+        RequestQueue queue = Volley.newRequestQueue(this);
+        String baseUrl ="http://10.0.2.2:8080"; // temporarily communicate to local machine
+        String propertiesUrl = baseUrl + "/properties";
+
+        // Request a string response from the provided URL.
+        JsonArrayRequest jsonRequest = new JsonArrayRequest(Request.Method.GET, propertiesUrl, null,
+            new Response.Listener<JSONArray>() {
+                @Override
+                public void onResponse(JSONArray response) {
+                    Log.d("network", response.toString());
+                    List<Property> properties = propertyNamesFromJson(response);
+                    if(properties.size() > 0) {
+                        mMap.clear();
+                        for(Property p : properties) {
+                            LatLng loc = new LatLng(p.getLocation().getLatitude(), p.getLocation().getLongitude());
+                            mMap.addMarker(new MarkerOptions().position(loc).title(p.getName()));
+                            mMap.moveCamera(CameraUpdateFactory.newLatLng(loc));
+                        }
+                    }
+                }
+            }, new Response.ErrorListener() {
+                @Override
+                public void onErrorResponse(VolleyError error) {
+                    Log.e("network error", error.getMessage());
+                    Log.e("network error", Log.getStackTraceString(error));
+                }
+        });
+
+        // Add the request to the RequestQueue.
+        queue.add(jsonRequest);
+    }
+
+    private List<Property> propertyNamesFromJson(JSONArray json) {
+        try {
+            List<Property> ret = new ArrayList<>();
+            for (int i = 0; i < json.length(); i++) {
+                JSONObject obj = json.getJSONObject(i);
+                Property p = new Property(obj.getString("name"));
+                Location l = new Location(obj.getJSONObject("location").getDouble("latitude"), obj.getJSONObject("location").getDouble("longitude"));
+                ret.add(p);
+            }
+            return ret;
+        } catch (JSONException e) {
+            Log.e("json error", e.getMessage());
+        }
+        return Collections.emptyList();
+    }
+
+    private static class Property {
+        private String name;
+        private String description;
+        private long price;
+        private Location location;
+
+        public Property(String name) {
+            this.name = name;
+        }
+
+        public String getName() {
+            return name;
+        }
+
+        public void setName(String name) {
+            this.name = name;
+        }
+
+        public String getDescription() {
+            return description;
+        }
+
+        public void setDescription(String description) {
+            this.description = description;
+        }
+
+        public long getPrice() {
+            return price;
+        }
+
+        public void setPrice(long price) {
+            this.price = price;
+        }
+
+        public Location getLocation() {
+            return location;
+        }
+
+        public void setLocation(Location location) {
+            this.location = location;
+        }
+    }
+
+    private static class Location {
+        private double latitude;
+        private double longitude;
+
+        public Location(double latitude, double longitude) {
+            this.latitude = latitude;
+            this.longitude = longitude;
+        }
+
+        public double getLatitude() {
+            return latitude;
+        }
+
+        public void setLatitude(double latitude) {
+            this.latitude = latitude;
+        }
+
+        public double getLongitude() {
+            return longitude;
+        }
+
+        public void setLongitude(double longitude) {
+            this.longitude = longitude;
+        }
     }
 }
