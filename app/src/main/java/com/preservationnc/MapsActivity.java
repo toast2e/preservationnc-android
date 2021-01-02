@@ -104,6 +104,7 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
                 JSONObject obj = json.getJSONObject(i);
                 Property p = new Property(obj.getString("name"));
                 Location l = new Location(obj.getJSONObject("location").getDouble("latitude"), obj.getJSONObject("location").getDouble("longitude"));
+                p.setLocation(l);
                 ret.add(p);
             }
             return ret;
