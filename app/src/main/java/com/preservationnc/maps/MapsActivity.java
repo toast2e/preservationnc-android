@@ -2,6 +2,9 @@ package com.preservationnc.maps;
 
 import androidx.fragment.app.FragmentActivity;
 
+import android.content.Context;
+import android.location.Address;
+import android.location.Geocoder;
 import android.os.Bundle;
 import android.util.Log;
 
@@ -13,11 +16,14 @@ import com.android.volley.toolbox.JsonArrayRequest;
 import com.android.volley.toolbox.JsonObjectRequest;
 import com.android.volley.toolbox.StringRequest;
 import com.android.volley.toolbox.Volley;
+import com.google.android.gms.maps.CameraUpdate;
 import com.google.android.gms.maps.CameraUpdateFactory;
 import com.google.android.gms.maps.GoogleMap;
 import com.google.android.gms.maps.OnMapReadyCallback;
 import com.google.android.gms.maps.SupportMapFragment;
 import com.google.android.gms.maps.model.LatLng;
+import com.google.android.gms.maps.model.LatLngBounds;
+import com.google.android.gms.maps.model.Marker;
 import com.google.android.gms.maps.model.MarkerOptions;
 import com.preservationnc.R;
 import com.preservationnc.representations.Location;
@@ -27,9 +33,11 @@ import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Locale;
 
 public class MapsActivity extends FragmentActivity implements OnMapReadyCallback {
 
@@ -72,20 +80,35 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
         String baseUrl ="http://10.0.2.2:8080"; // temporarily communicate to local machine
         String propertiesUrl = baseUrl + "/preservationnc/properties";
 
-        // Request a string response from the provided URL.
+        // Request a json response from the provided URL.
         JsonArrayRequest jsonRequest = new JsonArrayRequest(Request.Method.GET, propertiesUrl, null,
             new Response.Listener<JSONArray>() {
                 @Override
                 public void onResponse(JSONArray response) {
                     Log.d("network", response.toString());
-                    List<Property> properties = propertyNamesFromJson(response);
+                    List<Property> properties = propertiesFromJson(response);
                     if(properties.size() > 0) {
                         mMap.clear();
+                        List<Marker> markers = new ArrayList<>();
                         for(Property p : properties) {
-                            LatLng loc = new LatLng(p.getLocation().getLatitude(), p.getLocation().getLongitude());
-                            mMap.addMarker(new MarkerOptions().position(loc).title(p.getName()));
-                            mMap.moveCamera(CameraUpdateFactory.newLatLng(loc));
+                            LatLng loc = null;
+                            if (p.getLocation().getLatitude() != null && p.getLocation().getLongitude() != null) {
+                                loc = new LatLng(p.getLocation().getLatitude(), p.getLocation().getLongitude());
+                            }
+
+                            if (loc != null) {
+                                markers.add(mMap.addMarker(new MarkerOptions().position(loc).title(p.getName())));
+                            }
                         }
+                        LatLngBounds.Builder builder = new LatLngBounds.Builder();
+                        for (Marker marker : markers) {
+                            builder.include(marker.getPosition());
+                        }
+                        LatLngBounds bounds = builder.build();
+                        int padding = 200; // offset from edges of the map in pixels
+                        CameraUpdate cu = CameraUpdateFactory.newLatLngBounds(bounds, padding);
+
+                        mMap.animateCamera(cu);
                     }
                 }
             }, new Response.ErrorListener() {
@@ -100,13 +123,41 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
         queue.add(jsonRequest);
     }
 
-    private List<Property> propertyNamesFromJson(JSONArray json) {
+    private List<Property> propertiesFromJson(JSONArray json) {
         try {
             List<Property> ret = new ArrayList<>();
             for (int i = 0; i < json.length(); i++) {
                 JSONObject obj = json.getJSONObject(i);
-                Location l = new Location(obj.getJSONObject("location").getDouble("latitude"), obj.getJSONObject("location").getDouble("longitude"));
+                Location l = new Location();
+                if (obj.getJSONObject("location").has("latitude")) {
+                    l.setLatitude(obj.getJSONObject("location").getDouble("latitude"));
+                }
+                if (obj.getJSONObject("location").has("longitude")) {
+                    l.setLongitude(obj.getJSONObject("location").getDouble("longitude"));
+                }
+                if (obj.getJSONObject("location").has("address")) {
+                    l.setAddress(obj.getJSONObject("location").getString("address"));
+                }
+                if (obj.getJSONObject("location").has("city")) {
+                    l.setCity(obj.getJSONObject("location").getString("city"));
+                }
+                if (obj.getJSONObject("location").has("county")) {
+                    l.setCounty(obj.getJSONObject("location").getString("county"));
+                }
+                if (obj.getJSONObject("location").has("state")) {
+                    l.setState(obj.getJSONObject("location").getString("state"));
+                }
+                if (obj.getJSONObject("location").has("zip")) {
+                    l.setZip(obj.getJSONObject("location").getString("zip"));
+                }
+
                 Property p = new Property(obj.getString("name"), l);
+                if (obj.has("description")) {
+                    p.setDescription(obj.getString("description"));
+                }
+                if (obj.has("price")) {
+                    p.setPrice(obj.getLong("price"));
+                }
                 ret.add(p);
             }
             return ret;
