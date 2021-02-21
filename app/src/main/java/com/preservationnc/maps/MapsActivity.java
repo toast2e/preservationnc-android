@@ -1,10 +1,24 @@
 package com.preservationnc.maps;
 
+import androidx.annotation.NonNull;
+import androidx.core.app.ActivityCompat;
+import androidx.core.app.NotificationCompat;
+import androidx.core.app.NotificationManagerCompat;
 import androidx.fragment.app.FragmentActivity;
 
+import android.Manifest;
+import android.annotation.SuppressLint;
+import android.app.Notification;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
 import android.content.Context;
+import android.content.pm.PackageManager;
+import android.graphics.Color;
 import android.location.Address;
 import android.location.Geocoder;
+import android.location.LocationListener;
+import android.location.LocationManager;
+import android.os.Build;
 import android.os.Bundle;
 import android.util.Log;
 
@@ -21,6 +35,7 @@ import com.google.android.gms.maps.CameraUpdateFactory;
 import com.google.android.gms.maps.GoogleMap;
 import com.google.android.gms.maps.OnMapReadyCallback;
 import com.google.android.gms.maps.SupportMapFragment;
+import com.google.android.gms.maps.model.CircleOptions;
 import com.google.android.gms.maps.model.LatLng;
 import com.google.android.gms.maps.model.LatLngBounds;
 import com.google.android.gms.maps.model.Marker;
@@ -43,6 +58,56 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
 
     private GoogleMap mMap;
 
+    private LocationManager mLocationManager;
+
+    private List<Marker> propertyMarkers = new ArrayList<>();
+
+    private static String CHANNEL_ID = "PreservationNC";
+
+    private NotificationCompat.Builder mNotifcationBuilder;
+
+    private NotificationManagerCompat mNotificationManager;
+
+
+    private final LocationListener mLocationListener = new LocationListener() {
+        @Override
+        public void onLocationChanged(@NonNull android.location.Location location) {
+            LatLng current = new LatLng(location.getLatitude(), location.getLongitude());
+            for(Marker m : propertyMarkers) {
+                float[] results = new float[3];
+                android.location.Location.distanceBetween(location.getLatitude(), location.getLongitude(), m.getPosition().latitude, m.getPosition().longitude, results);
+                //Log.i("distanceToProperty", "Distance to property (" + m.getTitle() + ") is " + results[0] + " m");
+                if (results[0] < 20*1000) {
+                    Log.i("YOUCLOSEBRO", "YOU ARE WITHIN 20 KM OF A PRESERVATION NC HOUSE: " + m.getTitle());
+                    Notification n = mNotifcationBuilder
+                            .setSmallIcon(R.drawable.notification_icon)
+                            .setContentTitle("Near a PreservationNC property")
+                            .setContentText("YOU ARE WITHIN 20 KM OF A PRESERVATION NC HOUSE: " + m.getTitle())
+                            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+                            .build();
+                    mNotificationManager.notify((int)results[0], n);
+                }
+            }
+        }
+    };
+
+    private void createNotificationChannel() {
+        // Create the NotificationChannel, but only on API 26+ because
+        // the NotificationChannel class is new and not in the support library
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            //CharSequence name = getString(R.string.channel_name);
+            //String description = getString(R.string.channel_description);
+            int importance = NotificationManager.IMPORTANCE_DEFAULT;
+            NotificationChannel channel = new NotificationChannel(CHANNEL_ID, "PreservationNC", importance);
+            channel.setDescription("Notifications about PreservationNC properties");
+            // Register the channel with the system; you can't change the importance
+            // or other notification behaviors after this
+            //NotificationManager notificationManager = getSystemService(NotificationManager.class);
+            mNotificationManager.createNotificationChannel(channel);
+        }
+    }
+
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -51,6 +116,12 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
         SupportMapFragment mapFragment = (SupportMapFragment) getSupportFragmentManager()
                 .findFragmentById(R.id.map);
         mapFragment.getMapAsync(this);
+
+        mLocationManager = (LocationManager) getSystemService(LOCATION_SERVICE);
+
+        mNotifcationBuilder = new NotificationCompat.Builder(this, CHANNEL_ID);
+        mNotificationManager = NotificationManagerCompat.from(this);
+        createNotificationChannel();
     }
 
     /**
@@ -68,10 +139,13 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
 
         mMap = googleMap;
 
-        // Add a marker in raleigh and move the camera
-        LatLng raleigh = new LatLng(35.843685, -78.78514);
-        mMap.addMarker(new MarkerOptions().position(raleigh).title("Raleigh, NC"));
-        mMap.moveCamera(CameraUpdateFactory.newLatLng(raleigh));
+        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.ACCESS_FINE_LOCATION}, 6);
+        } else {
+            mMap.setMyLocationEnabled(true);
+            mLocationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 10*1000,
+                    1000, mLocationListener);
+        }
     }
 
     private void setupRequestQueue() {
@@ -89,7 +163,6 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
                     List<Property> properties = propertiesFromJson(response);
                     if(properties.size() > 0) {
                         mMap.clear();
-                        List<Marker> markers = new ArrayList<>();
                         for(Property p : properties) {
                             LatLng loc = null;
                             if (p.getLocation().getLatitude() != null && p.getLocation().getLongitude() != null) {
@@ -97,11 +170,11 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
                             }
 
                             if (loc != null) {
-                                markers.add(mMap.addMarker(new MarkerOptions().position(loc).title(p.getName())));
+                                propertyMarkers.add(mMap.addMarker(new MarkerOptions().position(loc).title(p.getName())));
                             }
                         }
                         LatLngBounds.Builder builder = new LatLngBounds.Builder();
-                        for (Marker marker : markers) {
+                        for (Marker marker : propertyMarkers) {
                             builder.include(marker.getPosition());
                         }
                         LatLngBounds bounds = builder.build();
@@ -165,5 +238,25 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
             Log.e("json error", e.getMessage());
         }
         return Collections.emptyList();
+    }
+
+    @SuppressLint("MissingPermission")
+    @Override
+    public void onRequestPermissionsResult(int requestCode,
+                                           @NonNull String[] permissions,
+                                           @NonNull int[] grantResults)
+    {
+        if (requestCode == 6) {
+            if (permissions.length > 0) {
+                if (permissions[0] == Manifest.permission.ACCESS_FINE_LOCATION && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                    mMap.setMyLocationEnabled(true);
+                    mLocationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 60*1000,
+                            1000, mLocationListener);
+                }
+            }
+            else {
+                return;
+            }
+        }
     }
 }
